@@ -1,7 +1,6 @@
-import sqlite3
 import pandas as pd
-import csv
 import pathlib
+import matplotlib.pyplot as plt
 
 
 class InputValidation:
@@ -60,6 +59,7 @@ class LifeInsuranceCalculator:
     """
 
     def __init__(self, df):
+        df = df.copy()
         if df.index.name != 'age':
             df = df.set_index('age')
         # Terminal-age mortality must be 1 (everyone alive at the last age
@@ -69,6 +69,8 @@ class LifeInsuranceCalculator:
             raise ValueError("Column 'qx' contains values outside [0, 1].")
         self.df = df
         self.validator = InputValidation(df)
+       
+
 
     def calculate_whole_life_insurance(self, age, interest, payment):
         """Present value of a whole life insurance (benefit paid at end of
@@ -78,7 +80,7 @@ class LifeInsuranceCalculator:
         self.validator.validate_payment(payment)
         v = 1 / (1 + interest)
 
-        # Vectorized sum of v^(t+1) * tpx * q(x+t) over all future years.
+        
         df_slice = self.df.loc[age:].copy()
         lx = self.df.at[age, 'l']
         df_slice['tpx'] = df_slice['l'] / lx
@@ -111,7 +113,7 @@ class LifeInsuranceCalculator:
         df_slice['pv'] = v ** (df_slice.index - age - deferral + 1) * df_slice['tpx'] * df_slice['qx']
         sum_value = df_slice['pv'].sum()
         lives_age = self.df.at[age, 'l']
-        # Discount back over the deferral period and condition on surviving it.
+        
         sum_value = sum_value * v ** deferral * lx / lives_age
         return sum_value * payment
 
@@ -127,7 +129,7 @@ class LifeInsuranceCalculator:
         df_slice['tpx'] = df_slice['l'] / lx
         df_slice['pv'] = v ** (df_slice.index - age + 1) * df_slice['tpx'] * df_slice['qx']
         sum_value = df_slice['pv'].sum()
-        # Pure endowment piece: survive to age+term and collect at time `term`.
+       
         tpx_last = self.df.at[age + term, 'l'] / lx
         sum_value = tpx_last * v ** term + sum_value
         return sum_value * payment
@@ -150,7 +152,7 @@ class LifeInsuranceCalculator:
         self.validator.validate_payment(payment)
         v = 1 / (1 + interest)
 
-        # Payments at times 1, 2, ...; each needs survival to that time.
+        
         df_slice = self.df.loc[age + 1:].copy()
         lx = self.df.at[age, 'l']
         df_slice['tpx'] = df_slice['l'] / lx
@@ -184,57 +186,64 @@ class LifeInsuranceCalculator:
         v = 1 / (1 + interest)
 
         annuity_immediate = self.calculate_term_life_annuity_immediate(age, interest, term, payment)
-        time_n_term = (self.df.at[age + term, 'l'] / self.df.at[age, 'l']) * v ** term
+        time_n_term = payment * (self.df.at[age + term, 'l'] / self.df.at[age, 'l']) * v ** term
         return payment + annuity_immediate - time_n_term
+    
 
+    def calculate_net_premium_whole_life(self, age, interest, payment):
+        A = self.calculate_whole_life_insurance(age, interest, 1)
+        a_due = self.calculate_term_life_annuity_due(age, interest, 1)
+        return payment * A / a_due
+    
+    
+    def calculate_reserve_whole_life(self, age, interest, payment, t):
+        A = self.calculate_whole_life_insurance(age, interest, 1)
+        a_due = self.calculate_whole_life_annuity_due(age, interest, 1)
+        P = payment * A / a_due
+        return self.calculate_whole_life_insurance(age + t, interest, payment) - P * self.calculate_whole_life_annuity_due(age + t, interest, 1)
+    
+    def project_term_life(self, age, term, interest, payment):
+        df = self.df.loc[age: age + term - 1].copy()
+        lx = self.df.at[age, 'l']
+        df['tpx'] = df['l'] / lx
+        df['expected_death'] = payment * df['tpx'] * df['qx']
+        P = payment * self.calculate_net_premium_term_life(age, interest, term, 1)
+        df['expected_premium'] = P * df['tpx']
+        df['net_cash_flow'] = df['expected_premium'] - df['expected_death']
+        df['reserve'] = [self.reserve_term_life(age, interest, term, payment, t) for t in range(term)]
 
-def load_table(csv_path, db_path='mortality_table.db'):
-    """Load the mortality CSV into a SQLite database and return it as a DataFrame."""
-    conn = sqlite3.connect(db_path)
-    cursor = conn.cursor()
+        return df[['l', 'qx', 'tpx', 'expected_death', 'expected_premium', 'net_cash_flow', 'reserve']]
+    
+    def calculate_net_premium_term_life(self, age, interest, term, payment):
+        A = self.calculate_term_life(age, interest, term, 1)
+        a_due = self.calculate_term_life_annuity_due(age, interest, term, 1)
+        return payment * A / a_due
 
-    cursor.execute('DROP TABLE IF EXISTS mortality_table')
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS mortality_table(
-            age INTEGER PRIMARY KEY,
-            l REAL,
-            qx REAL,
-            a_s REAL,
-            a_l REAL,
-            as10term REAL,
-            al10term REAL,
-            as20term REAL,
-            al20term REAL
-        )
-    ''')
+    def reserve_term_life(self, age, interest, term, payment, t):
+    
+        A = payment * self.calculate_term_life(age + t, interest, term - t, 1)
+        P = payment * self.calculate_net_premium_term_life(age, interest, term, 1)
+        a_due = self.calculate_term_life_annuity_due(age + t, interest, term - t, 1)
+        return A - P * a_due
+    
+    def profit_test_term_life(self, age, term, interest, payment, earned_rate):
+        df = self.project_term_life(age, term, interest, payment)
+        P = payment * self.calculate_net_premium_term_life(age, interest, term, 1)
+        df['profit'] = (df['reserve'] + P) * (1 + earned_rate) - (df['qx']) * (payment) - (1 - df['qx']) * (df['reserve'].shift(-1).fillna(0))
+        return df
 
-    with open(csv_path, 'r') as file:
-        reader = csv.DictReader(file)
-        rows = [
-            (
-                int(row['x']),
-                float(row['l']),
-                float(row['q']),
-                float(row['as']),
-                float(row['al']),
-                float(row['as10term']),
-                float(row['al10term']),
-                float(row['as20term']),
-                float(row['al20term']),
-            )
-            for row in reader
-        ]
+    def reserve_term_life_two_rates(self, age, pricing_rate, valuation_rate, term, payment, t):
+        P = self.calculate_net_premium_term_life(age, pricing_rate, term, payment)
+        A = self.calculate_term_life(age + t, valuation_rate, term - t, payment)
+        a_due = self.calculate_term_life_annuity_due(age + t, valuation_rate, term - t, 1)
+        return A - P * a_due
 
-    cursor.executemany('''
-        INSERT OR REPLACE INTO mortality_table
-            (age, l, qx, a_s, a_l, as10term, al10term, as20term, al20term)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', rows)
-    conn.commit()
-
-    df = pd.read_sql_query("SELECT * FROM mortality_table", conn)
-    conn.close()
-    return df
+def load_table(csv_path=None):
+    if csv_path is None:
+        csv_path = pathlib.Path(__file__).resolve().parent / 'Mortality_Table.csv'
+    df = pd.read_csv(csv_path)
+    df = df.rename(columns={'x': 'age', 'q': 'qx'})
+    return df[['age', 'l', 'qx']]
 
 
 def main():
@@ -242,9 +251,9 @@ def main():
     df = load_table(base_dir / 'Mortality_Table.csv')
     calc = LifeInsuranceCalculator(df)
 
-    age, interest, payment, term, deferral = 30, 0.05, 1, 10, 5
+   #age, interest, payment, term, deferral = 30, 0.05, 1, 10, 5
 
-    products = {
+    '''products = {
         "Whole Life Insurance": calc.calculate_whole_life_insurance(age, interest, payment),
         "Term Life Insurance": calc.calculate_term_life(age, interest, term, payment),
         "Deferred Term Life Insurance": calc.calculate_deferred_term_life(age, interest, term, deferral, payment),
@@ -256,8 +265,26 @@ def main():
         "Term Annuity Due": calc.calculate_term_life_annuity_due(age, interest, term, payment),
     }
     for product, value in products.items():
-        print(f"{product}: {value: .4f}")
+        print(f"{product}: {value: .4f}")'''
 
+    '''proj = calc.project_term_life(30, 10, 0.05, 100000)
+    plt.plot(proj.index, proj['expected_premium'], label='Premium')
+    plt.plot(proj.index, proj['expected_death'], label='Death Benefit')
+    plt.xlabel('Age')
+    plt.ylabel('Expected cashflow')
+    plt.legend()
+    plt.title('Premium vs Death benefit')
+    plt.savefig('Premium vs Death benefit')'''
+    
+    #print(calc.profit_test_term_life(30, 10, 0.05, 100000, 0.05))
+    #print(calc.profit_test_term_life(30, 10, 0.05, 100000, 0.06))
+
+    ##print(sensitivity_interest_term(calc, 30, 10, 100000, [0.04, 0.05, 0.06]))
+    ##print(sensitivity_interest_whole_life(calc, 30, 1, [0.04, 0.05, 0.06]))
+
+    print(calc.reserve_term_life_two_rates(30, 0.05, 0.05, 10, 100000, 5))
+    print(calc.reserve_term_life(30, 0.05, 10, 100000, 5))    
+    print(calc.reserve_term_life_two_rates(30, 0.05, 0.04, 10, 100000, 0))   # t=0,应不再是 0
 
 if __name__ == "__main__":
     main()

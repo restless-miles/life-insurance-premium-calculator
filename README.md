@@ -25,8 +25,8 @@ The project applies:
 ## 3. Mortality Table
 
 The default table is the **Standard Ultimate Life Table** (Basic Functions and
-Single Net Premiums at i = 0.05) from the **Society of Actuaries (SOA) Tables
-for Exam FAM-L**. The age range is 20 to 100. For simplicity, all lives beyond
+Single Net Premiums at i = 0.05) from the Society of Actuaries (SOA) Tables
+for Exam FAM-L. The age range is 20 to 100. For simplicity, all lives beyond
 age 100 are assumed to be 0, so the mortality rate at the terminal age is set
 to 1 when the table is loaded.
 
