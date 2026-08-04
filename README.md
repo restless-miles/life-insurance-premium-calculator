@@ -24,6 +24,7 @@ pricing a policy through to projecting its cash flows, reserves and profit.
 - Profit testing with a separate earned rate, producing a profit signature
 - Interest rate sensitivity, including separate pricing and valuation rates
   (negative spread on in-force business)
+- Monte Carlo simulation of claim outcomes, with tail risk measures (VaR, CTE)
 
 ## Repository
 
@@ -32,6 +33,7 @@ pricing a policy through to projecting its cash flows, reserves and profit.
 | `premium_calculator.py` | Core model — the `LifeInsuranceCalculator` class |
 | `commutation.py` | Independent second implementation via commutation functions |
 | `sensitivity.py` | Sensitivity analysis helpers |
+| `simulation.py` | Monte Carlo simulation of policy outcomes |
 | `analysis.ipynb` | Walkthrough of a single policy, from pricing to valuation |
 | `test_premium_calculator.py` | Internal consistency tests (12) |
 | `test_validate_actuarialmath.py` | Third-party validation tests (9) |
@@ -115,8 +117,14 @@ parameter.
 
 ## Limitations
 
-Net premium framework only — no expenses, lapses or mortality improvement. All
-calculations are deterministic; the model quantifies expected values and their
-sensitivity to assumptions, but not the distribution of outcomes. Natural
-extensions would be gross premium pricing, a multiple-decrement model, and
-stochastic simulation of mortality and interest.
+Net premium framework only — no expenses, lapses or mortality improvement.
+
+The Monte Carlo simulation captures process risk only: randomness in individual
+outcomes given fixed assumptions. Parameter risk — uncertainty in the mortality
+and interest assumptions themselves — is not modelled, and unlike process risk
+it cannot be diversified away by pooling. Interest is likewise deterministic
+throughout; only mortality outcomes are simulated.
+
+Natural extensions would be gross premium pricing with expense loadings, a
+multiple-decrement model including lapses, mortality improvement scales, and
+stochastic interest paths.
