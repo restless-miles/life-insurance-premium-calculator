@@ -1,7 +1,7 @@
 import pandas as pd
 import pathlib
 import matplotlib.pyplot as plt
-
+from assumptions import ExpenseAssumptions
 
 class InputValidation:
     """Helper class to validate user inputs for the calculator."""
@@ -192,7 +192,7 @@ class LifeInsuranceCalculator:
 
     def calculate_net_premium_whole_life(self, age, interest, payment):
         A = self.calculate_whole_life_insurance(age, interest, 1)
-        a_due = self.calculate_term_life_annuity_due(age, interest, 1)
+        a_due = self.calculate_whole_life_annuity_due(age, interest, 1)
         return payment * A / a_due
     
     
@@ -237,6 +237,16 @@ class LifeInsuranceCalculator:
         A = self.calculate_term_life(age + t, valuation_rate, term - t, payment)
         a_due = self.calculate_term_life_annuity_due(age + t, valuation_rate, term - t, 1)
         return A - P * a_due
+    
+    def gross_premium(self, A, annuity_due, exp: ExpenseAssumptions) -> float:
+        c1, E1, cr, Er, theta = exp.c1, exp.E1, exp.cr, exp.Er, exp.theta
+
+        numerator = A + E1 + Er * (annuity_due - 1)
+        denominator = annuity_due - c1 - cr * (annuity_due - 1) - theta * annuity_due
+        return numerator / denominator 
+
+
+
 
 def load_table(csv_path=None):
     if csv_path is None:
@@ -252,39 +262,6 @@ def main():
     calc = LifeInsuranceCalculator(df)
 
    #age, interest, payment, term, deferral = 30, 0.05, 1, 10, 5
-
-    '''products = {
-        "Whole Life Insurance": calc.calculate_whole_life_insurance(age, interest, payment),
-        "Term Life Insurance": calc.calculate_term_life(age, interest, term, payment),
-        "Deferred Term Life Insurance": calc.calculate_deferred_term_life(age, interest, term, deferral, payment),
-        "Endowment Life Insurance": calc.calculate_endowment_life(age, interest, term, payment),
-        "Pure Endowment": calc.calculate_pure_endowment(age, interest, term, payment),
-        "Whole Annuity Immediate": calc.calculate_whole_life_annuity_immediate(age, interest, payment),
-        "Whole Annuity Due": calc.calculate_whole_life_annuity_due(age, interest, payment),
-        "Term Annuity Immediate": calc.calculate_term_life_annuity_immediate(age, interest, term, payment),
-        "Term Annuity Due": calc.calculate_term_life_annuity_due(age, interest, term, payment),
-    }
-    for product, value in products.items():
-        print(f"{product}: {value: .4f}")'''
-
-    '''proj = calc.project_term_life(30, 10, 0.05, 100000)
-    plt.plot(proj.index, proj['expected_premium'], label='Premium')
-    plt.plot(proj.index, proj['expected_death'], label='Death Benefit')
-    plt.xlabel('Age')
-    plt.ylabel('Expected cashflow')
-    plt.legend()
-    plt.title('Premium vs Death benefit')
-    plt.savefig('Premium vs Death benefit')'''
-    
-    #print(calc.profit_test_term_life(30, 10, 0.05, 100000, 0.05))
-    #print(calc.profit_test_term_life(30, 10, 0.05, 100000, 0.06))
-
-    ##print(sensitivity_interest_term(calc, 30, 10, 100000, [0.04, 0.05, 0.06]))
-    ##print(sensitivity_interest_whole_life(calc, 30, 1, [0.04, 0.05, 0.06]))
-
-    print(calc.reserve_term_life_two_rates(30, 0.05, 0.05, 10, 100000, 5))
-    print(calc.reserve_term_life(30, 0.05, 10, 100000, 5))    
-    print(calc.reserve_term_life_two_rates(30, 0.05, 0.04, 10, 100000, 0))   # t=0,应不再是 0
 
 if __name__ == "__main__":
     main()
